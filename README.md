@@ -1,4 +1,4 @@
-### Support vector elastic net
+### Support Vector Elastic Net
 Support vector elastic net (SVEN) is a method which formulates elastic net regression problem as a support vector machine (SVM) binary classification problem.
 
 I started this project from scratch as a demo based on the following research papers.
