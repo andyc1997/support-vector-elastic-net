@@ -28,7 +28,14 @@ class SVElasticNet:
         if self.rlambda < 0:
             print('SVElasticNet error: regularization constant cannot be negative.')
     
+    def primalGrad(self, pbeta, kernel, y, plambda):
+        # Exact gradient formula from Chapelle (2006)
+        grad1 = plambda*(kernel @ pbeta.reshape(-1, 1))
+        grad2 = kernel @ (kernel @ pbeta.reshape(-1, 1) - y)
+        return 2*(grad1 + grad2).flatten()
+    
     def primalObj(self, pbeta, kernel, y, plambda):
+        # primal objective function with squared hinge loss
         margin = plambda*np.dot(pbeta.flatten(), (kernel @ pbeta).flatten())
         arg = np.dot((kernel.T @ pbeta).flatten(), y.flatten())
         loss = (np.maximum(np.zeros(arg.shape), 1 - arg)) ** 2
@@ -36,6 +43,8 @@ class SVElasticNet:
         return plambda*margin + np.sum(loss)
     
     def primalLinSearch(self, gamma, pbeta, pbeta_opt, kernel, y, plambda):
+        # Backtracking: unidimensional optimization
+        # beta(gamma)
         beta = pbeta + gamma*(pbeta_opt - pbeta)
         
         return self.primalObj(beta, kernel, y, plambda)
@@ -46,7 +55,7 @@ class SVElasticNet:
         
         if n > 1000:
             n //= 2
-            pbeta, sv = self.primalOptimize(kernel[:n, :n], y[:n, :], plambda, pbeta, sv)
+            pbeta, sv = self.primalOptimize(kernel[:n, :n], y[:n, :], plambda, pbeta)
             sv = set(*np.nonzero(pbeta[:, 0]))
             
         else:
@@ -79,7 +88,7 @@ class SVElasticNet:
             li_sv = list(sv) 
             res = minimize(self.primalObj, pbeta[li_sv, :], 
                            (kernel[li_sv, :][:, li_sv], y[li_sv, :], plambda), 
-                           method = 'CG', jac = '3-point', options = {'maxiter': 100, 'disp': True})
+                           method = 'CG', jac = self.primalGrad, options = {'maxiter': 100, 'disp': True})
             if res.success == 0:
                 print('Convergence failed...')
                 return pbeta, sv
@@ -103,7 +112,6 @@ class SVElasticNet:
                 print('Ill-posed problem.')
                 return pbeta, sv
         
-        print('-'*20)
         return pbeta, sv
 
     def SVMprimal(self, X, y, C):
