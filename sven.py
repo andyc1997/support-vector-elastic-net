@@ -28,10 +28,21 @@ class SVElasticNet:
         if self.rlambda < 0:
             print('SVElasticNet error: regularization constant cannot be negative.')
     
+    def primalObj(self, pbeta, kernel, y, plambda):
+        margin = plambda*np.dot(pbeta.flatten(), (kernel @ pbeta).flatten())
+        arg = np.dot((kernel.T @ pbeta).flatten(), y.flatten())
+        loss = (np.maximum(np.zeros(arg.shape), 1 - arg)) ** 2
+        
+        return plambda*margin + np.sum(loss)
+    
+    def primalLinSearch(self, gamma, pbeta, pbeta_opt, kernel, y, plambda):
+        beta = pbeta + gamma*(pbeta_opt - pbeta)
+        
+        return self.primalObj(beta, kernel, y, plambda)
+    
     def primalOptimize(self, kernel, y, plambda, pbeta, sv):
         # primal newton's method with squared hinge loss
         n = y.size
-        sv_prev = set([-1])
         
         if n > 1000:
             n //= 2
@@ -41,36 +52,65 @@ class SVElasticNet:
         else:
             sv = set(range(0, n))
         
-        max_iter = 1000
+        max_iter = 100
+        tol = 1e-6
+        
+        sv_prev = set([-1])
+        
         while len(sv_prev.difference(sv)) > 0:
+            print('New iteration: Estimating support vectors...')
+            sv_prev = sv
             li_sv = list(sv)
             coef_mat = kernel[li_sv, li_sv] + plambda*np.identity(len(sv))
-            const_vec = y[li_sv] 
+            const_vec = y[li_sv]
             
             pbeta_sv = linalg.solve(coef_mat, const_vec)
             pbeta = np.zeros((y.size, 1))
             for i in range(len(sv)):
                 pbeta[li_sv[i]] = pbeta_sv[i]
-                    
-            sv_prev, sv = sv, set()
-            tight = y * (kernel @ pbeta)
-            
+    
+            sv = set()
+            tight = y*(kernel @ pbeta)
             for i in range(n):
                 if tight[i] < 1:
                     sv.add(i)
+                    
+            print('Gradient descent...')
+            li_sv = list(sv) 
+            res = minimize(self.primalObj, pbeta[li_sv, :], 
+                           (kernel[li_sv, :][:, li_sv], y[li_sv, :], plambda), 
+                           method = 'CG', jac = '3-point', options = {'maxiter': 100, 'disp': True})
+            if res.success == 0:
+                print('Convergence failed...')
+                return pbeta, sv
+            pbeta_opt = pbeta.copy()
+            pbeta_opt[li_sv, :] = res.x.reshape(-1, 1)
+            
+            print('Backtracking...')
+            res = minimize(self.primalLinSearch, 0.6, (pbeta, pbeta_opt, kernel, y, plambda),
+                           method = 'SLSQP', jac = 'cs', bounds = [(0, np.inf)])
+            gamma_opt = res.x
+            pbeta_opt = pbeta + gamma_opt*(pbeta_opt - pbeta)
+            
+            if np.sum(np.abs(pbeta_opt - pbeta)) < tol:
+                print('Convergence')
+                return pbeta, sv
+            else:
+                pbeta = pbeta_opt
             
             max_iter -= 1
             if max_iter == 0:
                 print('Ill-posed problem.')
-                break
-
+                return pbeta, sv
+        
+        print('-'*20)
         return pbeta, sv
 
     def SVMprimal(self, X, y, C):
         # primal problem
         plambda = 1/C
         kernel = X @ X.T
-        pbeta = np.zeros((X.shape[1], 1))
+        pbeta = np.zeros((X.shape[0], 1))
         sv = set()
         pbeta, _ = self.primalOptimize(kernel, y, plambda, pbeta, sv)
         
@@ -83,10 +123,10 @@ class SVElasticNet:
     def SVMdual(self, X, y, C):
         # dual problem
         Z = X * y
-        ineq_cons = ({'type': 'ineq', 'fun': lambda x: x})
+        bound = [(0, np.inf)]*Z.shape[0]
         initial_guess = np.random.rand(Z.shape[0])
-        res = minimize(self.dualObj, initial_guess, args = (Z, C), method = 'SLSQP',
-                       constraints = ineq_cons, tol = 1e-6)
+        res = minimize(self.dualObj, initial_guess, args = (Z, C), method = 'L-BFGS-B',
+                       bounds = bound , tol = 1e-6)
         
         return res.x
         
@@ -108,7 +148,7 @@ class SVElasticNet:
         alpha, C = None, 1/(2*self.rlambda)
         
         # case of high dimension: primal
-        if 2*p > n or mode == 'P':
+        if (2*p > n or mode == 'P') and (mode != 'D'):
             pbeta = self.SVMprimal(constructX, constructy, C)
             w = (constructX.T @ pbeta)
             alpha = C*np.maximum(np.zeros(constructy.shape), np.ones(constructy.shape) - 
