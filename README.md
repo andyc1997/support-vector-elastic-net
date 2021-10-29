@@ -4,3 +4,4 @@ Support vector elastic net (SVEN) is a method which formulates elastic net regre
 I started this project from scratch based on the following research papers:
 1. A Reduction of the Elastic Net to Support Vector Machines with an Application to GPU Computing (Zhou, Chen & Song, 2015)
 2. Training a Support Vector Machine in the Primal (Chapelle, 2006)
+3. A modified finite Newton method for fast solution of large scale linear svms (Keerthi & DeCoste, 2005)
